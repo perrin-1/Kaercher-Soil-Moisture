@@ -18,11 +18,11 @@ boolean SKIP_FAILED_CRC = true;
 //Automatically cleanup sensor data array
 boolean AUTO_CLEAN_DB = true;
 
-//Max Age of Sensor Reading for auto cleanup (default 1h = 3600000 ms) 
-#define MAXDATAAGE 3600000 
+//Max Age of Sensor Reading for auto cleanup (default 1h = 3600000 ms)
+#define MAXDATAAGE 3600000
 
 //Auto Cleanup Interval (default: clean once every 30 min = 3600000 ms)
-#define AUTOCLEANINTERVAL 1800000 
+#define AUTOCLEANINTERVAL 1800000
 unsigned long lastCleanTime = 0;
 
 // The connection to the hardware chip CC1101 the RF Chip
@@ -109,19 +109,43 @@ void addOrUpdateSensorData(sensorData_type sData) {
     //Serial.println("Update");
     //sensor ID exists - > update existing record
     updateSensorDataInDB (dpos, sData);
+    sortSensorData();
   }
   else
   {
     //Serial.println("Add");
     //sensor ID is not present in Data Array -> add new record
     addSensorDataToDB(sData);
+    sortSensorData();
   }
 }
 
+/*
+   Sort the Sensor Data Array by Age of the received packet
+*/
 
+
+void sortSensorData() {
+
+  int i, j;
+  for (i = 0; i < currentSensorDataPos - 1; ++i)
+  {
+
+    for (j = 0; j < currentSensorDataPos - i - 1; ++j)
+    {
+      if (sensorData[j].timestamp > sensorData[j + 1].timestamp)
+      {
+        sensorData_type tmp = sensorData[j];
+        sensorData[j] = sensorData[j + 1];
+        sensorData[j + 1] = tmp;
+      }
+    }
+  }
+
+}
 
 /*
- * dump all data from Sensor Data Array
+   dump all data from Sensor Data Array
 */
 
 void dumpSensorDataArray() {
@@ -156,33 +180,31 @@ void dumpSensorDataArray() {
 }
 
 /*
- * Cleans Sensor Data Array. Removes all Values with Age > 1hour 
- */
+   Cleans Sensor Data Array. Removes all Values with Age > 1hour
+*/
 void cleanupSensorDataArray() {
-  //define new temporary array
-  sensorData_type sensorDataTemp[SENSORDBSIZE];
+  
   Serial.println(F("Old Sensor Data Array entries: "));
   Serial.println(currentSensorDataPos);
-  
+
   int tempDataPos = 0;
   //loop through existing array
   for (int i = 0; i < currentSensorDataPos; i++) {
     //check age for every item
     //if age less than maxage
-    //move to temp array
+    //set currentSensorDatapos to last value
+    //since array is sorted
 
     if (millis() - sensorData[i].timestamp < MAXDATAAGE) {
-      sensorDataTemp[tempDataPos] = sensorData[i];
-      tempDataPos++;
+      currentSensorDataPos = i-1;
+      break;
     }
   }
 
-  //set Sensor Data Array = TempArray
-  memcpy(sensorData, sensorDataTemp, sizeof(sensorDataTemp[0])*tempDataPos);
-  currentSensorDataPos = tempDataPos;
+ 
   Serial.println(F("New Sensor Data Array entries: "));
   Serial.println(currentSensorDataPos);
-  
+
 }
 
 void blinker(byte ledPin) {
@@ -438,24 +460,24 @@ void printHex(int num, int precision) {
 }
 
 /*
- * print help - prints out help information
- */
+   print help - prints out help information
+*/
 
 void printHelp() {
-   Serial.println(F("Help:"));
-   Serial.println(F("d : dump Sensor Data Array"));
-   Serial.println(F("s : Display CC1101 Packet Status"));
-   Serial.println(F("m : Display CC1101 Marcstate"));
-   Serial.println(F("c : toggle skipping of failed CRC packets"));
-   Serial.println(F("a : cleanup sensor data array"));
-   Serial.println(F("x : toggle auto cleanup of sensor data array"));
-   Serial.println();
+  Serial.println(F("Help:"));
+  Serial.println(F("d : dump Sensor Data Array"));
+  Serial.println(F("s : Display CC1101 Packet Status"));
+  Serial.println(F("m : Display CC1101 Marcstate"));
+  Serial.println(F("c : toggle skipping of failed CRC packets"));
+  Serial.println(F("a : cleanup sensor data array"));
+  Serial.println(F("x : toggle auto cleanup of sensor data array"));
+  Serial.println();
 }
 
 /*
- * toggle skipping of failed crc check received packets
- * 
- */
+   toggle skipping of failed crc check received packets
+
+*/
 
 void toggleCRCCheck() {
   SKIP_FAILED_CRC = !SKIP_FAILED_CRC;
@@ -464,9 +486,9 @@ void toggleCRCCheck() {
 }
 
 /*
- * toggle automatic cleanup of sensor data array
- * 
- */
+   toggle automatic cleanup of sensor data array
+
+*/
 
 void toggleAutoCleanup() {
   AUTO_CLEAN_DB = !AUTO_CLEAN_DB;
@@ -556,12 +578,12 @@ void loop()
       case 'c': toggleCRCCheck(); break;
       case 'a': cleanupSensorDataArray(); break;
       case 'x': toggleAutoCleanup(); break;
-   }
-   // auto clean Sensor Data Array if enabled
-   if (AUTO_CLEAN_DB && millis() - lastCleanTime > AUTOCLEANINTERVAL)
-    cleanupSensorDataArray();
-    
-   
+    }
+    // auto clean Sensor Data Array if enabled
+    if (AUTO_CLEAN_DB && millis() - lastCleanTime > AUTOCLEANINTERVAL)
+      cleanupSensorDataArray();
+
+
   }
 
   //updateStatusLED((cc1101.readReg(CC1101_MARCSTATE, CC1101_STATUS_REGISTER) & 0x1f), (cc1101.readReg(CC1101_PKTSTATUS, CC1101_STATUS_REGISTER) & 0x1f), (cc1101.readReg(CC1101_RXBYTES, CC1101_STATUS_REGISTER) & 0x1f));
