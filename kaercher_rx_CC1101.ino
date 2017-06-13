@@ -133,7 +133,7 @@ void sortSensorData() {
 
     for (j = 0; j < currentSensorDataPos - i - 1; ++j)
     {
-      if (sensorData[j].timestamp > sensorData[j + 1].timestamp)
+      if (sensorData[j].timestamp < sensorData[j + 1].timestamp)
       {
         sensorData_type tmp = sensorData[j];
         sensorData[j] = sensorData[j + 1];
@@ -180,13 +180,14 @@ void dumpSensorDataArray() {
 }
 
 /*
-   Cleans Sensor Data Array. Removes all Values with Age > 1hour
+   Cleans Sensor Data Array. Removes all Values with Age > MAXDATAAGE (1hour)
 */
 void cleanupSensorDataArray() {
-  
-  Serial.println(F("Old Sensor Data Array entries: "));
-  Serial.println(currentSensorDataPos);
 
+  Serial.println(F("Sensor Data Array cleanup"));
+  Serial.print(F("Old/New Sensor Data entries: "));
+  Serial.println(currentSensorDataPos);
+  Serial.print(F("/"));
   int tempDataPos = 0;
   //loop through existing array
   for (int i = 0; i < currentSensorDataPos; i++) {
@@ -195,14 +196,11 @@ void cleanupSensorDataArray() {
     //set currentSensorDatapos to last value
     //since array is sorted
 
-    if (millis() - sensorData[i].timestamp < MAXDATAAGE) {
-      currentSensorDataPos = i-1;
+    if (millis() - sensorData[i].timestamp > MAXDATAAGE) {
+      currentSensorDataPos = i - 1;
       break;
     }
   }
-
- 
-  Serial.println(F("New Sensor Data Array entries: "));
   Serial.println(currentSensorDataPos);
 
 }
@@ -579,12 +577,16 @@ void loop()
       case 'a': cleanupSensorDataArray(); break;
       case 'x': toggleAutoCleanup(); break;
     }
-    // auto clean Sensor Data Array if enabled
-    if (AUTO_CLEAN_DB && millis() - lastCleanTime > AUTOCLEANINTERVAL)
-      cleanupSensorDataArray();
-
-
   }
+  // auto clean Sensor Data Array if enabled
+  if (AUTO_CLEAN_DB && millis() - lastCleanTime > AUTOCLEANINTERVAL)
+  {
+    cleanupSensorDataArray();
+    lastCleanTime = millis();
+  }
+
+
+
 
   //updateStatusLED((cc1101.readReg(CC1101_MARCSTATE, CC1101_STATUS_REGISTER) & 0x1f), (cc1101.readReg(CC1101_PKTSTATUS, CC1101_STATUS_REGISTER) & 0x1f), (cc1101.readReg(CC1101_RXBYTES, CC1101_STATUS_REGISTER) & 0x1f));
 }
