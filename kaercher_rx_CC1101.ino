@@ -1,13 +1,16 @@
 #include "cc1101.h"
 
 // The LED is wired to the Arduino Output 4 (physical panStamp pin 19)
-#define LEDOUTPUT 9
-//Status LEDs
-#define LEDOUTPUT1 4
-#define LEDOUTPUT2 5
-#define LEDOUTPUT3 6
-#define LEDOUTPUT4 7
+// LED RX
+#define RXLED 9
 
+//LED READY
+#define RDYLED 8
+
+// Blink Intervall of RDY LED (1sec)
+#define RDYINTERVAL 1000
+unsigned long lastRDYBlink = 0;
+boolean RDYLedState = false;
 
 //Number of Sensor Readings to save in Memory
 #define SENSORDBSIZE 10
@@ -17,6 +20,10 @@ boolean SKIP_FAILED_CRC = true;
 
 //Automatically cleanup sensor data array
 boolean AUTO_CLEAN_DB = true;
+
+//Silent mode - hide logging of received packets
+boolean SILENT_MODE = false;
+
 
 //Max Age of Sensor Reading for auto cleanup (default 1h = 3600000 ms)
 #define MAXDATAAGE 3600000
@@ -145,7 +152,8 @@ void sortSensorData() {
 }
 
 /*
-   dump all data from Sensor Data Array
+   dump all data from Sensor Data Array human readable
+
 */
 
 void dumpSensorDataArray() {
@@ -180,14 +188,52 @@ void dumpSensorDataArray() {
 }
 
 /*
+   dump all data from Sensor Data Array machine readable
+
+*/
+
+void dumpSensorDataArrayMR() {
+  //sanity check
+  if (currentSensorDataPos > SENSORDBSIZE) {
+    currentSensorDataPos = 0;
+    Serial.println(F("Sensor Data corrupt. Erasing..."));
+    return;
+  }
+  Serial.println(F("ID,PC,ML,BL,C,R,L,Age"));
+  for (int i = 0; i < currentSensorDataPos; i++) {
+    printHex(sensorData[i].sensorID, 4);
+    Serial.print(F(","));
+    Serial.print(sensorData[i].packetCount, DEC);
+    Serial.print(F(","));
+    Serial.print(sensorData[i].moistLevel, DEC);
+    Serial.print(F(","));
+    Serial.print(sensorData[i].battLevel, DEC);
+    Serial.print(F(","));
+    Serial.print(sensorData[i].crc, DEC);
+    Serial.print(F(","));
+    Serial.print(sensorData[i].rssi, DEC);
+    Serial.print(F(","));
+    Serial.print(sensorData[i].lqi, DEC);
+    Serial.print(F(","));
+    Serial.println(millis() - sensorData[i].timestamp);
+  }
+  Serial.println();
+
+}
+
+
+
+/*
    Cleans Sensor Data Array. Removes all Values with Age > MAXDATAAGE (1hour)
 */
 void cleanupSensorDataArray() {
 
-  Serial.println(F("Sensor Data Array cleanup"));
-  Serial.print(F("Old/New Sensor Data entries: "));
-  Serial.println(currentSensorDataPos);
-  Serial.print(F("/"));
+  if (!SILENT_MODE) {
+    Serial.println(F("Sensor Data Array cleanup"));
+    Serial.print(F("Old/New Sensor Data entries: "));
+    Serial.print(currentSensorDataPos);
+    Serial.print(F("/"));
+  }
   int tempDataPos = 0;
   //loop through existing array
   for (int i = 0; i < currentSensorDataPos; i++) {
@@ -201,7 +247,8 @@ void cleanupSensorDataArray() {
       break;
     }
   }
-  Serial.println(currentSensorDataPos);
+  if (!SILENT_MODE)
+    Serial.println(currentSensorDataPos);
 
 }
 
@@ -242,15 +289,12 @@ void setup()
   Serial.begin(115200);
 
   // setup the blinker output
-  pinMode(LEDOUTPUT, OUTPUT);
-  digitalWrite(LEDOUTPUT, LOW);
+  pinMode(RXLED, OUTPUT);
+  digitalWrite(RXLED, LOW);
 
   // blink every LED once to signal the setup
-  blinker(LEDOUTPUT);
-  blinker(LEDOUTPUT1);
-  blinker(LEDOUTPUT2);
-  blinker(LEDOUTPUT3);
-  blinker(LEDOUTPUT4);
+  blinker(RXLED);
+  blinker(RDYLED);
 
   // initialize the RF Chip
   cc1101.init();
@@ -339,36 +383,45 @@ void decodePacket(CCPACKET * packet, sensorData_type* sData)
 {
   //boolean set to true when the packet has an error
   bool packetError = false;
-
-
-  Serial.print(F("Sensor ID: "));
-  //printHex(packet->data[3],2);
-  //printHex(packet->data[4],2);
-
-
+  //Calculate SensorID
   word sID = word(packet->data[3], packet->data[4]);
-  printHex(sID, 4);
 
-  Serial.print(F(", Packet count: "));
-  Serial.print(packet->data[0], DEC);
+  if (!SILENT_MODE) {
+    Serial.print(F("Sensor ID: "));
+    //printHex(packet->data[3],2);
+    //printHex(packet->data[4],2);
 
-  Serial.print(F(", Moisture level: "));
+
+
+
+    printHex(sID, 4);
+
+    Serial.print(F(", Packet count: "));
+    Serial.print(packet->data[0], DEC);
+
+    Serial.print(F(", Moisture level: "));
+  }
+
   if (packet->data[1] <= 7)
-    Serial.print(packet->data[1], DEC);
-  else {
-    Serial.print(F("ERR"));
-    packetError = true;
-  }
+    if (!SILENT_MODE)
+      Serial.print(packet->data[1], DEC);
+    else {
+      if (!SILENT_MODE)
+        Serial.print(F("ERR"));
+      packetError = true;
+    }
 
 
-
-  Serial.print(F(", Battery level: "));
+  if (!SILENT_MODE)
+    Serial.print(F(", Battery level: "));
   if (packet->data[2] <= 3)
-    Serial.print(packet->data[2], DEC);
-  else {
-    Serial.print(F("ERR"));
-    packetError = true;
-  }
+    if (!SILENT_MODE)
+      Serial.print(packet->data[2], DEC);
+    else {
+      if (!SILENT_MODE)
+        Serial.print(F("ERR"));
+      packetError = true;
+    }
 
   if (!packetError) {
     sData->sensorID = sID;
@@ -385,34 +438,6 @@ void decodePacket(CCPACKET * packet, sensorData_type* sData)
     sData->sensorID = 0;
   }
 
-}
-
-
-void updateStatusLED(byte MARCSTATE, byte PKTSTATUS, byte BytesInRXFIFO) {
-  /*
-     LEDOUTPUT1: MARCSTATE=RX
-     LEDOUTPUT2: GDO0
-     LEDOUTPUT3: RXFIFO Bytes > 0
-     LEDOUTPUT4: GDO2
-
-  */
-  if (MARCSTATE == 13)
-    digitalWrite(LEDOUTPUT1, HIGH);
-  else
-    digitalWrite(LEDOUTPUT1, LOW);
-
-  if (PKTSTATUS & (1 << 0))
-    digitalWrite(LEDOUTPUT2, HIGH);
-  else
-    digitalWrite(LEDOUTPUT2, LOW);
-  if (BytesInRXFIFO > 0)
-    digitalWrite(LEDOUTPUT3, HIGH);
-  else
-    digitalWrite(LEDOUTPUT3, LOW);
-  if (PKTSTATUS & (1 << 2))
-    digitalWrite(LEDOUTPUT4, HIGH);
-  else
-    digitalWrite(LEDOUTPUT4, LOW);
 }
 
 
@@ -464,11 +489,13 @@ void printHex(int num, int precision) {
 void printHelp() {
   Serial.println(F("Help:"));
   Serial.println(F("d : dump Sensor Data Array"));
+  Serial.println(F("b : dump Sensor Data Array machine readable"));
   Serial.println(F("s : Display CC1101 Packet Status"));
   Serial.println(F("m : Display CC1101 Marcstate"));
   Serial.println(F("c : toggle skipping of failed CRC packets"));
   Serial.println(F("a : cleanup sensor data array"));
   Serial.println(F("x : toggle auto cleanup of sensor data array"));
+  Serial.println(F("v : toggle silent mode (logging of received packets)"));
   Serial.println();
 }
 
@@ -494,6 +521,16 @@ void toggleAutoCleanup() {
   Serial.println(AUTO_CLEAN_DB);
 }
 
+/*
+   Toggle silent mode - logging of received packets
+   in silent mode the device generates not output except on keyboard presses
+*/
+
+void toggleSilentMode() {
+  SILENT_MODE = !SILENT_MODE;
+  Serial.println(F("Silent Mode: "));
+  Serial.println(SILENT_MODE);
+}
 
 void loop()
 {
@@ -502,40 +539,50 @@ void loop()
     // Disable wireless reception interrupt
     detachInterrupt(digitalPinToInterrupt(GDO0));
 
+
+
     // clear the flag
     packetAvailable = false;
 
     // increase packet counter
     pcount++;
-    Serial.print (uptime());
-    Serial.print(F(" RX pcount "));
-    Serial.println(pcount);
+
+    if (!SILENT_MODE) {
+      Serial.print (uptime());
+      Serial.print(F(" RX pcount "));
+      Serial.println(pcount);
+
+    }
     // receive the packet from RX Fifo
     if (cc1101.receiveData(&packet) > 0) {
 
       if ((!SKIP_FAILED_CRC && !packet.crc_ok) || packet.crc_ok )
       {
-        Serial.print(F("RSSI: "));
-        Serial.print(packet.rssi);
-        //ReadRSSI();
-        Serial.print(F(" LQI: "));
-        //ReadLQI();
-        Serial.print(packet.lqi);
-        Serial.print(" ");
+        if (!SILENT_MODE) {
+          Serial.print(F("RSSI: "));
+          Serial.print(packet.rssi);
+          //ReadRSSI();
+          Serial.print(F(" LQI: "));
+          //ReadLQI();
+          Serial.print(packet.lqi);
+          Serial.print(" ");
+        }
         if (packet.length > 0)
         {
-          Serial.print(F("CRC:"));
-          Serial.print(packet.crc_ok);
-          Serial.print(F(" packet: len "));
-          Serial.print(packet.length);
-          Serial.print(F(": "));
-          Serial.print(F(" data: "));
-          for (int j = 0; j < packet.length; j++)
-          {
-            printHex(packet.data[j], 2);
-            Serial.print(" ");
+          if (!SILENT_MODE) {
+            Serial.print(F("CRC:"));
+            Serial.print(packet.crc_ok);
+            Serial.print(F(" packet: len "));
+            Serial.print(packet.length);
+            Serial.print(F(": "));
+            Serial.print(F(" data: "));
+            for (int j = 0; j < packet.length; j++)
+            {
+              printHex(packet.data[j], 2);
+              Serial.print(" ");
+            }
+            Serial.println("");
           }
-          Serial.println("");
 
 
           if (packet.length == 5)
@@ -553,13 +600,14 @@ void loop()
     Serial.println("");
 
     //blink once to signal packet reception
-    blinker(LEDOUTPUT);
+    blinker(RXLED);
 
     //set cc1101 back to RX mode
     cc1101.cmdStrobe(CC1101_SRX);
 
     //re-attach interrupt
     attachInterrupt(digitalPinToInterrupt(GDO0), cc1101signalsInterrupt, FALLING);
+
 
 
 
@@ -570,12 +618,14 @@ void loop()
     char c = Serial.read();
     switch (c) {
       case 'd': dumpSensorDataArray(); break;
+      case 'b': dumpSensorDataArrayMR(); break;
       case 'h': printHelp(); break;
       case 's': Serial.println(printPKTSTATUS(cc1101.readReg(CC1101_PKTSTATUS, CC1101_STATUS_REGISTER))); break;
       case 'm': Serial.println(printMARCSTATE(cc1101.readReg(CC1101_MARCSTATE, CC1101_STATUS_REGISTER))); break;
       case 'c': toggleCRCCheck(); break;
       case 'a': cleanupSensorDataArray(); break;
       case 'x': toggleAutoCleanup(); break;
+      case 'v': toggleSilentMode(); break;
     }
   }
   // auto clean Sensor Data Array if enabled
@@ -583,6 +633,17 @@ void loop()
   {
     cleanupSensorDataArray();
     lastCleanTime = millis();
+  }
+
+  //blink RDY LED
+  if (millis() - lastRDYBlink > RDYINTERVAL)
+  {
+    RDYLedState = !RDYLedState;
+    if (RDYLedState)
+      digitalWrite(RDYLED, HIGH);
+    else
+      digitalWrite(RDYLED, LOW);
+    lastRDYBlink = millis();
   }
 
 
